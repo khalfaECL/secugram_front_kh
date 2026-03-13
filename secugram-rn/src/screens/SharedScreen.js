@@ -5,23 +5,21 @@ import {
 import { Radius, Spacing } from '../theme';
 import { useTheme } from '../hooks/useTheme';
 
-const EPHEMERAL_DURATION = 5000; // ms
-
 const MOCK_SHARED = [
   {
-    image_id: 'img_010', owner_username: 'bob_martin',
+    image_id: 'img_010', owner_username: 'khakfa_youssef',
     description: 'Conférence Paris 2025 📊',
     date_shared: '15 fév. 2025',
     preview_uri: 'https://picsum.photos/seed/conf/800/800',
   },
   {
-    image_id: 'img_011', owner_username: 'emma_rousseau',
+    image_id: 'img_011', owner_username: 'chammakhi_malak',
     description: 'Soirée équipe 🎉',
     date_shared: '22 fév. 2025',
     preview_uri: 'https://picsum.photos/seed/party/800/800',
   },
   {
-    image_id: 'img_012', owner_username: 'charlie_durand',
+    image_id: 'img_012', owner_username: 'krid_amani',
     description: 'Prototype V2 🔧',
     date_shared: '5 mars 2025',
     preview_uri: 'https://picsum.photos/seed/tech/800/800',
@@ -30,12 +28,12 @@ const MOCK_SHARED = [
 
 // ── Ephemeral Image Viewer ────────────────────────────────────────────────────
 
-function EphemeralViewer({ photo, onClose, colors }) {
-  const [secondsLeft, setSecondsLeft] = useState(Math.ceil(EPHEMERAL_DURATION / 1000));
+function EphemeralViewer({ photo, onClose, colors, durationSec }) {
+  const durationMs = durationSec * 1000;
+  const [secondsLeft, setSecondsLeft] = useState(durationSec);
   const progress = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
-    // Countdown
     const interval = setInterval(() => {
       setSecondsLeft(s => {
         if (s <= 1) { clearInterval(interval); return 0; }
@@ -43,15 +41,13 @@ function EphemeralViewer({ photo, onClose, colors }) {
       });
     }, 1000);
 
-    // Progress bar animation
     Animated.timing(progress, {
       toValue: 0,
-      duration: EPHEMERAL_DURATION,
+      duration: durationMs,
       useNativeDriver: false,
     }).start();
 
-    // Auto-close
-    const timeout = setTimeout(onClose, EPHEMERAL_DURATION);
+    const timeout = setTimeout(onClose, durationMs);
 
     return () => { clearInterval(interval); clearTimeout(timeout); };
   }, []);
@@ -111,7 +107,7 @@ function EphemeralViewer({ photo, onClose, colors }) {
 
 // ── Info Modal (avant accès) ──────────────────────────────────────────────────
 
-function InfoModal({ photo, onClose, onAccess, colors }) {
+function InfoModal({ photo, onClose, onAccess, colors, ephemeralDuration }) {
   if (!photo) return null;
   return (
     <Modal visible animationType="slide" transparent onRequestClose={onClose}>
@@ -162,7 +158,7 @@ function InfoModal({ photo, onClose, onAccess, colors }) {
             padding: 12, marginBottom: 20,
           }}>
             <Text style={{ fontSize: 11, color: colors.accent, fontFamily: 'Courier New', lineHeight: 18 }}>
-              ⏱  Affichage éphémère — {EPHEMERAL_DURATION / 1000} secondes{'\n'}
+              ⏱  Affichage éphémère — {ephemeralDuration} secondes{'\n'}
               👁  Votre accès sera enregistré{'\n'}
               🚫  Aucune copie locale
             </Text>
@@ -188,7 +184,7 @@ function InfoModal({ photo, onClose, onAccess, colors }) {
 // ── Screen ────────────────────────────────────────────────────────────────────
 
 export default function SharedScreen() {
-  const { colors } = useTheme();
+  const { colors, ephemeralDuration } = useTheme();
   const [photos] = useState(MOCK_SHARED);
   const [selected, setSelected] = useState(null);   // info modal
   const [viewing, setViewing]   = useState(null);   // ephemeral viewer
@@ -285,6 +281,7 @@ export default function SharedScreen() {
           onClose={() => setSelected(null)}
           onAccess={handleAccess}
           colors={colors}
+          ephemeralDuration={ephemeralDuration}
         />
       )}
 
@@ -293,6 +290,7 @@ export default function SharedScreen() {
           photo={viewing}
           onClose={() => setViewing(null)}
           colors={colors}
+          durationSec={ephemeralDuration}
         />
       )}
     </View>

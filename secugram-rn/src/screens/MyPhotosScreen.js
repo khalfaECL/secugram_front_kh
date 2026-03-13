@@ -16,10 +16,10 @@ const MOCK_MY_PHOTOS = [
     image_id: 'img_001', description: 'Vacances Nice 2025 🌊',
     date_creation: '26 fév. 2025',
     preview_uri: 'https://picsum.photos/seed/beach/400/400',
-    authorized: ['bob_martin', 'charlie_durand'], access_count: 3,
+    authorized: ['khakfa_youssef', 'chammakhi_malak'], access_count: 3,
     history: [
-      { viewer: 'bob_martin',     date: '2 mars · 14h23', type: 'app' },
-      { viewer: 'charlie_durand', date: '4 mars · 09h11', type: 'app' },
+      { viewer: 'khakfa_youssef',   date: '2 mars · 14h23', type: 'app' },
+      { viewer: 'chammakhi_malak',  date: '4 mars · 09h11', type: 'app' },
       { viewer: 'inconnu_device', date: '5 mars · 22h04', type: 'watermark' },
     ],
   },
@@ -27,9 +27,9 @@ const MOCK_MY_PHOTOS = [
     image_id: 'img_002', description: 'Randonnée Vercors 🌲',
     date_creation: '3 mars 2025',
     preview_uri: 'https://picsum.photos/seed/forest/400/400',
-    authorized: ['emma_rousseau'], access_count: 1,
+    authorized: ['krid_amani'], access_count: 1,
     history: [
-      { viewer: 'emma_rousseau', date: '5 mars · 11h30', type: 'app' },
+      { viewer: 'krid_amani', date: '5 mars · 11h30', type: 'app' },
     ],
   },
   {
@@ -40,7 +40,7 @@ const MOCK_MY_PHOTOS = [
   },
 ];
 
-const KNOWN_USERS = ['bob_martin', 'charlie_durand', 'dave_leclerc', 'emma_rousseau', 'felix_moreau'];
+const KNOWN_USERS = ['khakfa_youssef', 'chammakhi_malak', 'agrebi_marwane', 'krid_amani', 'felix_moreau'];
 
 // ── Photo Detail Modal ────────────────────────────────────────────────────────
 

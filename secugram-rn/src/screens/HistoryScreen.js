@@ -9,13 +9,13 @@ const MOCK_MY_IMAGE_ACCESSES = [
     id: 'h1', image_id: 'img_001',
     image_description: 'Vacances Nice 2025 🌊',
     preview_uri: 'https://picsum.photos/seed/beach/80/80',
-    viewer: 'bob_martin', date: '2 mars · 14h23', type: 'app',
+    viewer: 'khakfa_youssef', date: '2 mars · 14h23', type: 'app',
   },
   {
     id: 'h2', image_id: 'img_001',
     image_description: 'Vacances Nice 2025 🌊',
     preview_uri: 'https://picsum.photos/seed/beach/80/80',
-    viewer: 'charlie_durand', date: '4 mars · 09h11', type: 'app',
+    viewer: 'chammakhi_malak', date: '4 mars · 09h11', type: 'app',
   },
   {
     id: 'h3', image_id: 'img_001',
@@ -27,7 +27,7 @@ const MOCK_MY_IMAGE_ACCESSES = [
     id: 'h4', image_id: 'img_002',
     image_description: 'Randonnée Vercors 🌲',
     preview_uri: 'https://picsum.photos/seed/forest/80/80',
-    viewer: 'emma_rousseau', date: '5 mars · 11h30', type: 'app',
+    viewer: 'krid_amani', date: '5 mars · 11h30', type: 'app',
   },
 ];
 
@@ -37,13 +37,13 @@ const MOCK_MY_ACCESSES = [
     id: 'a1', image_id: 'img_010',
     image_description: 'Conférence Paris 2025 📊',
     preview_uri: 'https://picsum.photos/seed/conf/80/80',
-    owner: 'bob_martin', date: '16 fév. · 10h05',
+    owner: 'khakfa_youssef', date: '16 fév. · 10h05',
   },
   {
     id: 'a2', image_id: 'img_012',
     image_description: 'Prototype V2 🔧',
     preview_uri: 'https://picsum.photos/seed/tech/80/80',
-    owner: 'charlie_durand', date: '6 mars · 15h40',
+    owner: 'chammakhi_malak', date: '6 mars · 15h40',
   },
 ];
 
