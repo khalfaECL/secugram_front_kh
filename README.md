@@ -145,4 +145,9 @@ Toggle via the ☀️ / 🌙 button in the app header or profile screen.
 
 ## License
 
-MIT
+KHALFA youssef
+KRID Amani
+AGREBI Marwane
+CHAMMAKHI Malek
+
+Ecole Centrale Lyon
