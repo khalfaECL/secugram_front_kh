@@ -63,13 +63,17 @@ export default function UploadModal({ visible, onClose, onSuccess, users }) {
         await new Promise(r => setTimeout(r, 1800));
         imageId = `demo_${Date.now()}`;
       } else {
-        const result = await API.uploadPhoto(session.token, {
-          imageData:         image.base64,
-          description:       desc,
-          authorizedUsers:   selected,
-          ephemeralDuration,
-          maxViews,
-        });
+        const result = await API.uploadPhoto(
+          session.token,
+          {
+            imageAsset:        image,   // { uri, fileName, type }
+            description:       desc,
+            authorizedUsers:   selected,
+            ephemeralDuration,
+            maxViews,
+          },
+          session,                      // { userId, username } requis par le TdC
+        );
         imageId = result.image_id;
       }
       clearInterval(progressInterval);

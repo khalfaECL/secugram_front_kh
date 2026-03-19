@@ -9,8 +9,8 @@
  */
 
 export const API_BASE_URL = __DEV__
-  ? 'http://10.0.2.2:3000/api'          // Android emulator → localhost
-  : 'https://api.secugram.io/api';       // Production
+  ? 'http://10.26.138.187:8300'          // Device physique → Tiers de Confiance (port 8300)
+  : 'https://api.secugram.io';           // Production
 
 /**
  * Timeout par défaut pour les requêtes réseau (ms).

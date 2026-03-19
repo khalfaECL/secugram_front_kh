@@ -40,6 +40,7 @@ export function AuthProvider({ children }) {
   }, []);
 
   const register = useCallback(async (username, email, password) => {
+    // API.register enchaîne automatiquement un login → retourne token + expires_in
     const data = await API.register(username, email, password);
     const sess = {
       token:     data.token,
@@ -51,8 +52,9 @@ export function AuthProvider({ children }) {
     return sess;
   }, []);
 
-  const logout = useCallback(() => {
-    setSession(null); // efface tout de la mémoire
+  const logout = useCallback((token) => {
+    if (token) API.logout(token); // invalide côté TdC (fire-and-forget)
+    setSession(null);
   }, []);
 
   const demoLogin = useCallback(() => {

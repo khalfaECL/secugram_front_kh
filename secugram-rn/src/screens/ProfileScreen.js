@@ -127,7 +127,7 @@ export default function ProfileScreen() {
   const confirmLogout = () => {
     Alert.alert('Déconnexion', 'La session sera effacée de la mémoire.', [
       { text: 'Annuler', style: 'cancel' },
-      { text: 'Se déconnecter', style: 'destructive', onPress: logout },
+      { text: 'Se déconnecter', style: 'destructive', onPress: () => logout(session?.token) },
     ]);
   };
 

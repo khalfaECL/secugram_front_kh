@@ -25,11 +25,18 @@ import { API_BASE_URL, API_TIMEOUT_MS } from '../config';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
+// Le Tiers de Confiance attend le token dans le body (pas Bearer header).
+// authHeaders est gardé pour compatibilité future avec un backend intermédiaire.
 function authHeaders(token) {
   return {
     'Content-Type': 'application/json',
     Authorization: `Bearer ${token}`,
   };
+}
+
+// Headers pour les routes Tiers de Confiance (token dans body, pas header).
+function tdcHeaders() {
+  return { 'Content-Type': 'application/json' };
 }
 
 async function handleResponse(res) {
@@ -122,9 +129,7 @@ function normalizeUser(u) {
 // ─── Auth ─────────────────────────────────────────────────────────────────────
 
 /**
- * POST /api/auth/login
- * @param {string} username
- * @param {string} password
+ * POST /auth/login  (Tiers de Confiance)
  * @returns {{ token: string, user_id: string, username: string, expires_in: number }}
  */
 export async function login(username, password) {
@@ -134,31 +139,45 @@ export async function login(username, password) {
     body: JSON.stringify({ username, password }),
   });
   const data = await handleResponse(res);
+  // Le TdC retourne expires_at (ISO string), on calcule expires_in en secondes.
+  const expiresIn = data.expires_at
+    ? Math.floor((new Date(data.expires_at).getTime() - Date.now()) / 1000)
+    : (data.expires_in ?? 86400);
   return {
     token:      data.token,
     user_id:    data.user_id ?? data._id,
     username:   data.username,
-    expires_in: data.expires_in ?? 3600,
+    expires_in: expiresIn,
   };
 }
 
 /**
- * POST /api/auth/register
+ * POST /auth/register  (Tiers de Confiance)
+ * Le TdC ne retourne PAS de token à l'inscription → on enchaîne un login automatique.
  * @returns {{ token: string, user_id: string, username: string, expires_in: number }}
  */
-export async function register(username, email, password) {
+export async function register(username, _email, password) {
+  // email ignoré : le TdC ne l'accepte pas dans /auth/register
   const res = await fetchWithTimeout(`${API_BASE_URL}/auth/register`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ username, email, password }),
+    body: JSON.stringify({ username, password }),
   });
-  const data = await handleResponse(res);
-  return {
-    token:      data.token,
-    user_id:    data.user_id ?? data._id,
-    username:   data.username,
-    expires_in: data.expires_in ?? 3600,
-  };
+  await handleResponse(res); // { message, user_id } — pas de token
+  // Auto-login pour obtenir le token de session.
+  return login(username, password);
+}
+
+/**
+ * POST /auth/logout  (Tiers de Confiance)
+ * Invalide le token côté serveur.
+ */
+export async function logout(token) {
+  await fetchWithTimeout(`${API_BASE_URL}/auth/logout`, {
+    method: 'POST',
+    headers: tdcHeaders(),
+    body: JSON.stringify({ token }),
+  }).catch(() => {}); // erreur silencieuse — la session mémoire est effacée de toute façon
 }
 
 // ─── Users ────────────────────────────────────────────────────────────────────
@@ -214,22 +233,54 @@ export async function fetchMyPhotos(token) {
  *
  * @returns {{ image_id: string, preview_url: string }}
  */
-export async function uploadPhoto(token, { imageData, description, authorizedUsers, ephemeralDuration, maxViews }) {
-  const res = await fetchWithTimeout(`${API_BASE_URL}/photos/upload`, {
-    method: 'POST',
-    headers: authHeaders(token),
+/**
+ * Flux complet d'upload vers le Tiers de Confiance :
+ *   1. POST /set_key   — crée la clé AES-256 pour l'image
+ *   2. POST /add_post  — chiffre + watermark + stocke l'image
+ *
+ * @param {{ uri, fileName?, type? }} imageAsset
+ * @param {{ description, authorizedUsers, ephemeralDuration, maxViews }} opts
+ * @param {{ userId, username }} session
+ * @returns {{ image_id: string, preview_uri: string|null }}
+ */
+export async function uploadPhoto(token, { imageAsset, description, authorizedUsers, ephemeralDuration: _ephem, maxViews: _maxV }, session) {
+  // Génération d'un image_id côté client (UUID simplifié)
+  const imageId = `img_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+
+  // 1. Créer la clé de chiffrement pour cette image
+  const keyRes = await fetchWithTimeout(`${API_BASE_URL}/set_key`, {
+    method:  'POST',
+    headers: tdcHeaders(),
     body: JSON.stringify({
-      image_data:         imageData,
-      description:        description ?? '',
-      authorized_users:   authorizedUsers ?? [],
-      ephemeral_duration: ephemeralDuration ?? 5,
-      max_views:          maxViews ?? 3,
+      owner_username: session.username,
+      user_id:        session.userId,
+      image_id:       imageId,
+      token:          token,
+      valid:          true,
     }),
   });
-  const data = await handleResponse(res);
+  await handleResponse(keyRes);
+
+  // 2. Déposer l'image (le TdC chiffre + watermark avec la clé créée à l'étape 1)
+  const formData = new FormData();
+  formData.append('user_id',  session.userId);
+  formData.append('caption',  description ?? '');
+  formData.append('image_id', imageId);
+  formData.append('image', {
+    uri:  imageAsset.uri,
+    name: imageAsset.fileName ?? 'photo.jpg',
+    type: imageAsset.type     ?? 'image/jpeg',
+  });
+  (authorizedUsers ?? []).forEach(u => formData.append('authorized_users', u));
+
+  const postRes = await fetchWithTimeout(`${API_BASE_URL}/add_post`, {
+    method: 'POST',
+    body:   formData,
+  });
+  const data = await handleResponse(postRes);
   return {
-    image_id:    data._id ?? data.image_id,
-    preview_uri: data.preview_url ?? data.preview_uri,
+    image_id:    data.image_id ?? imageId,
+    preview_uri: data.preview_url ?? null,
   };
 }
 
@@ -241,11 +292,19 @@ export async function uploadPhoto(token, { imageData, description, authorizedUse
  * @param {string[]} authorizedUsers  - liste de usernames
  * @returns {{ success: boolean }}
  */
-export async function authorizePhoto(token, imageId, authorizedUsers) {
-  const res = await fetchWithTimeout(`${API_BASE_URL}/photos/${imageId}/authorize`, {
-    method: 'PATCH',
-    headers: authHeaders(token),
-    body: JSON.stringify({ authorized_users: authorizedUsers }),
+/**
+ * POST /authorize/{image_id}  (Tiers de Confiance)
+ * Token dans le body (pas en header).
+ */
+export async function authorizePhoto(token, imageId, authorizedUsers, ownerUsername) {
+  const res = await fetchWithTimeout(`${API_BASE_URL}/authorize/${imageId}`, {
+    method: 'POST',
+    headers: tdcHeaders(),
+    body: JSON.stringify({
+      owner_username:   ownerUsername,
+      token:            token,
+      authorized_users: authorizedUsers,
+    }),
   });
   return handleResponse(res);
 }
