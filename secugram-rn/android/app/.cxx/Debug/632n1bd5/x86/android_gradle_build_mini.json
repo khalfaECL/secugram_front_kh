@@ -1,5 +1,6 @@
 {
   "buildFiles": [
+    "E:\\github\\secugram_kh\\secugram-rn\\node_modules\\@react-native-async-storage\\async-storage\\android\\build\\generated\\source\\codegen\\jni\\CMakeLists.txt",
     "E:\\github\\secugram_kh\\secugram-rn\\node_modules\\react-native-image-picker\\android\\build\\generated\\source\\codegen\\jni\\CMakeLists.txt",
     "E:\\github\\secugram_kh\\secugram-rn\\node_modules\\react-native-safe-area-context\\android\\src\\main\\jni\\CMakeLists.txt",
     "E:\\github\\secugram_kh\\secugram-rn\\node_modules\\react-native-screens\\android\\src\\main\\jni\\CMakeLists.txt",
@@ -56,6 +57,11 @@
         "C:\\Users\\Lenovo\\.gradle\\caches\\8.10.2\\transforms\\1ae2c2bcce3cae52224b57e1fa01bdc7\\transformed\\react-android-0.76.5-debug\\prefab\\modules\\jsi\\libs\\android.x86\\libjsi.so",
         "C:\\Users\\Lenovo\\.gradle\\caches\\8.10.2\\transforms\\1ae2c2bcce3cae52224b57e1fa01bdc7\\transformed\\react-android-0.76.5-debug\\prefab\\modules\\reactnative\\libs\\android.x86\\libreactnative.so"
       ]
+    },
+    "react_codegen_rnasyncstorage::@1596841e19ec5b9eeffe": {
+      "artifactName": "react_codegen_rnasyncstorage",
+      "abi": "x86",
+      "runtimeFiles": []
     }
   }
 }

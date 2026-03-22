@@ -6,12 +6,14 @@ import { useTheme } from '../hooks/useTheme';
 
 import LoginScreen    from '../screens/LoginScreen';
 import MyPhotosScreen from '../screens/MyPhotosScreen';
+import FeedScreen     from '../screens/FeedScreen';
 import SharedScreen   from '../screens/SharedScreen';
 import HistoryScreen  from '../screens/HistoryScreen';
 import ProfileScreen  from '../screens/ProfileScreen';
 
 const TABS = [
   { label: 'Mes images', type: 'images',  title: 'Mes images' },
+  { label: 'Feed',       type: 'feed',    title: 'Feed' },
   { label: 'Partagées',  type: 'shared',  title: 'Partagées avec moi' },
   { label: 'Historique', type: 'history', title: 'Historique' },
   { label: 'Profil',     type: 'profile', title: 'Mon profil' },
@@ -56,6 +58,15 @@ function TabIcon({ type, color, size = 20 }) {
         }}>
           <View style={{ width: size * 0.16, height: size * 0.16, borderRadius: size, backgroundColor: 'rgba(255,255,255,0.38)' }}/>
         </View>
+      </View>
+    );
+  }
+  if (type === 'feed') {
+    // Grid 2x2 with center dot — "feed" feel
+    return (
+      <View style={{ width: size, height: size, alignItems: 'center', justifyContent: 'center' }}>
+        <View style={{ width: size * 0.78, height: size * 0.78, borderWidth: Math.ceil(size * 0.1), borderColor: color, borderRadius: size * 0.15 }}/>
+        <View style={{ position: 'absolute', width: size * 0.14, height: size * 0.14, borderRadius: size, backgroundColor: color }}/>
       </View>
     );
   }
@@ -121,7 +132,7 @@ function BrandMark({ colors }) {
   );
 }
 
-const SCREENS = [MyPhotosScreen, SharedScreen, HistoryScreen, ProfileScreen];
+const SCREENS = [MyPhotosScreen, FeedScreen, SharedScreen, HistoryScreen, ProfileScreen];
 
 // ── Info Menu ─────────────────────────────────────────────────────────────────
 

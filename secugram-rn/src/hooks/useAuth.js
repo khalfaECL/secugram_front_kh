@@ -5,6 +5,7 @@
  */
 import React, { createContext, useContext, useState, useCallback } from 'react';
 import * as API from '../api';
+import { clearSessionPhotos } from '../api';
 
 const AuthContext = createContext(null);
 
@@ -54,6 +55,7 @@ export function AuthProvider({ children }) {
 
   const logout = useCallback((token) => {
     if (token) API.logout(token); // invalide côté TdC (fire-and-forget)
+    clearSessionPhotos();
     setSession(null);
   }, []);
 

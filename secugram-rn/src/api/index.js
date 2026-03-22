@@ -21,6 +21,7 @@
  *                            type: 'app'|'watermark', accessed_at }
  */
 
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_BASE_URL, API_TIMEOUT_MS } from '../config';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -41,7 +42,16 @@ function tdcHeaders() {
 
 async function handleResponse(res) {
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.message || `HTTP ${res.status}`);
+  if (!res.ok) {
+    // FastAPI utilise "detail", certains backends "message"
+    const detail = data.detail ?? data.message;
+    const msg = typeof detail === 'string'
+      ? detail
+      : Array.isArray(detail)
+        ? detail.map(e => e.msg || JSON.stringify(e)).join(', ')
+        : `Erreur ${res.status}`;
+    throw new Error(msg);
+  }
   return data;
 }
 
@@ -197,21 +207,61 @@ export async function fetchUsers(token) {
 
 // ─── Photos (galerie personnelle) ─────────────────────────────────────────────
 
+// Clé AsyncStorage par user : "photos_<username>"
+const photosKey = (username) => `photos_${username}`;
+
+export async function addToSessionPhotos(photo, username) {
+  const key = photosKey(username);
+  const raw = await AsyncStorage.getItem(key);
+  const list = raw ? JSON.parse(raw) : [];
+  if (!list.find(p => p.image_id === photo.image_id)) {
+    list.unshift(photo);
+    await AsyncStorage.setItem(key, JSON.stringify(list));
+  }
+}
+
+export async function removeFromSessionPhotos(imageId, username) {
+  const key = photosKey(username);
+  const raw = await AsyncStorage.getItem(key);
+  if (!raw) return;
+  const list = JSON.parse(raw).filter(p => p.image_id !== imageId);
+  await AsyncStorage.setItem(key, JSON.stringify(list));
+}
+
+// clearSessionPhotos n'efface plus rien au logout — chaque user garde ses photos.
+export function clearSessionPhotos() {}
+
+// ─── Photos partagées (cache local) ──────────────────────────────────────────
+
+const sharedKey = (username) => `shared_${username}`;
+
+export async function addToSharedPhotos(photo, authorizedUsernames) {
+  for (const username of authorizedUsernames) {
+    const key = sharedKey(username);
+    const raw = await AsyncStorage.getItem(key);
+    const list = raw ? JSON.parse(raw) : [];
+    if (!list.find(p => p.image_id === photo.image_id)) {
+      list.unshift(photo);
+      await AsyncStorage.setItem(key, JSON.stringify(list));
+    }
+  }
+}
+
+export async function fetchSharedPhotos(_token, username) {
+  if (!username) return { photos: [] };
+  const raw = await AsyncStorage.getItem(sharedKey(username));
+  return { photos: raw ? JSON.parse(raw) : [] };
+}
+
 /**
- * GET /api/photos
- * Images déposées par l'utilisateur connecté.
- * @returns {{ photos: Array<NormalizedMyPhoto> }}
- *
- * Réponse backend attendue :
- * { photos: [{ _id, description, preview_url, authorized_users[], ephemeral_duration,
- *              max_views, blocked, access_count, created_at, history[] }] }
+ * GET /api/photos — endpoint non disponible sur le TdC.
+ * Retourne les photos persistées localement pour ce user.
+ * @returns {{ photos: Array<object> }}
  */
-export async function fetchMyPhotos(token) {
-  const res = await fetchWithTimeout(`${API_BASE_URL}/photos`, {
-    headers: authHeaders(token),
-  });
-  const data = await handleResponse(res);
-  return { photos: (data.photos ?? []).map(normalizeMyPhoto) };
+export async function fetchMyPhotos(_token, username) {
+  if (!username) return { photos: [] };
+  const raw = await AsyncStorage.getItem(photosKey(username));
+  return { photos: raw ? JSON.parse(raw) : [] };
 }
 
 /**
@@ -243,45 +293,69 @@ export async function fetchMyPhotos(token) {
  * @param {{ userId, username }} session
  * @returns {{ image_id: string, preview_uri: string|null }}
  */
+/**
+ * POST /add_post  (Tiers de Confiance)
+ * Le TdC génère la clé AES-256, chiffre et watermark l'image en interne.
+ * authorized_users : envoyé comme chaîne séparée par virgules.
+ *
+ * @returns {{ image_id: string, preview_uri: null, authorized: string[] }}
+ */
 export async function uploadPhoto(token, { imageAsset, description, authorizedUsers, ephemeralDuration: _ephem, maxViews: _maxV }, session) {
-  // Génération d'un image_id côté client (UUID simplifié)
-  const imageId = `img_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-
-  // 1. Créer la clé de chiffrement pour cette image
-  const keyRes = await fetchWithTimeout(`${API_BASE_URL}/set_key`, {
-    method:  'POST',
-    headers: tdcHeaders(),
-    body: JSON.stringify({
-      owner_username: session.username,
-      user_id:        session.userId,
-      image_id:       imageId,
-      token:          token,
-      valid:          true,
-    }),
-  });
-  await handleResponse(keyRes);
-
-  // 2. Déposer l'image (le TdC chiffre + watermark avec la clé créée à l'étape 1)
   const formData = new FormData();
-  formData.append('user_id',  session.userId);
-  formData.append('caption',  description ?? '');
-  formData.append('image_id', imageId);
+  formData.append('user_id',        session.userId);
+  formData.append('owner_username', session.username);
+  formData.append('token',          token);
+  formData.append('caption',        description ?? '');
   formData.append('image', {
     uri:  imageAsset.uri,
     name: imageAsset.fileName ?? 'photo.jpg',
     type: imageAsset.type     ?? 'image/jpeg',
   });
-  (authorizedUsers ?? []).forEach(u => formData.append('authorized_users', u));
+  if (authorizedUsers && authorizedUsers.length > 0) {
+    formData.append('authorized_users', authorizedUsers.join(','));
+  }
 
-  const postRes = await fetchWithTimeout(`${API_BASE_URL}/add_post`, {
+  const res = await fetchWithTimeout(`${API_BASE_URL}/add_post`, {
     method: 'POST',
     body:   formData,
   });
-  const data = await handleResponse(postRes);
+  const data = await handleResponse(res);
   return {
-    image_id:    data.image_id ?? imageId,
-    preview_uri: data.preview_url ?? null,
+    image_id:    data.image_id,
+    preview_uri: null,             // Le TdC ne retourne pas de preview_url
+    authorized:  data.autorisations ?? authorizedUsers ?? [],
   };
+}
+
+/**
+ * POST /posts/{image_id}  (Tiers de Confiance)
+ * Récupère une image. Si l'utilisateur est autorisé → image déchiffrée (base64).
+ * Sinon → image chiffrée + decrypted:false.
+ *
+ * @returns {{ image_id, caption, image: string (base64), decrypted: boolean }}
+ */
+export async function getPost(token, username, imageId) {
+  const res = await fetchWithTimeout(`${API_BASE_URL}/posts/${imageId}`, {
+    method:  'POST',
+    headers: tdcHeaders(),
+    body:    JSON.stringify({ username, token }),
+  });
+  return handleResponse(res);
+}
+
+/**
+ * DELETE /revoke/{image_id}/{target_username}  (Tiers de Confiance)
+ * Révoque l'accès d'un utilisateur à une image.
+ *
+ * @returns {{ message, image_id, autorisations: string[] }}
+ */
+export async function revokeAccess(token, imageId, targetUsername, ownerUsername) {
+  const res = await fetchWithTimeout(`${API_BASE_URL}/revoke/${imageId}/${targetUsername}`, {
+    method:  'DELETE',
+    headers: tdcHeaders(),
+    body:    JSON.stringify({ owner_username: ownerUsername, token }),
+  });
+  return handleResponse(res);
 }
 
 /**
@@ -346,42 +420,14 @@ export async function setPhotoBlocked(token, imageId, blocked) {
   return handleResponse(res);
 }
 
-/**
- * DELETE /api/photos/:imageId
- * Supprime l'image et ses métadonnées (côté backend + Tiers de Confiance).
- *
- * @returns {{ success: boolean }}
- */
-export async function deletePhoto(token, imageId) {
-  const res = await fetchWithTimeout(`${API_BASE_URL}/photos/${imageId}`, {
+export async function deletePhoto(token, username, imageId) {
+  const res = await fetchWithTimeout(`${API_BASE_URL}/delete_key/${username}/${imageId}`, {
     method: 'DELETE',
-    headers: authHeaders(token),
+    headers: { token },
   });
   return handleResponse(res);
 }
 
-// ─── Photos partagées (côté viewer) ──────────────────────────────────────────
-
-/**
- * GET /api/photos/shared
- * Images que d'autres utilisateurs ont partagées avec le connecté.
- *
- * Réponse backend attendue :
- * { photos: [{ _id, owner_username, description, shared_at, preview_url,
- *              ephemeral_duration, max_views, blocked }] }
- *
- * NOTE : preview_url doit être une URL signée et temporaire renvoyée par
- * le Tiers de Confiance — l'image ne doit jamais être stockée localement.
- *
- * @returns {{ photos: Array<NormalizedSharedPhoto> }}
- */
-export async function fetchSharedPhotos(token) {
-  const res = await fetchWithTimeout(`${API_BASE_URL}/photos/shared`, {
-    headers: authHeaders(token),
-  });
-  const data = await handleResponse(res);
-  return { photos: (data.photos ?? []).map(normalizeSharedPhoto) };
-}
 
 /**
  * POST /api/photos/:imageId/access
@@ -397,53 +443,147 @@ export async function fetchSharedPhotos(token) {
  *   En cas de quota/cooldown/blocage, une erreur HTTP est renvoyée avec
  *   { message, reason: 'quota'|'cooldown'|'blocked', remain_min? }
  */
-export async function recordAccess(token, imageId) {
-  const res = await fetchWithTimeout(`${API_BASE_URL}/photos/${imageId}/access`, {
+export async function recordAccess(token, imageId, username) {
+  const res = await fetchWithTimeout(`${API_BASE_URL}/posts/${imageId}`, {
     method: 'POST',
-    headers: authHeaders(token),
+    headers: tdcHeaders(),
+    body: JSON.stringify({ username, token }),
   });
   const data = await handleResponse(res);
+  if (!data.decrypted) throw new Error("Accès non autorisé à cette image.");
   return {
-    access_id:  data.access_id ?? data._id,
-    signed_url: data.signed_url ?? data.preview_url,
+    signed_url: `data:image/jpeg;base64,${data.image}`,
   };
 }
 
-// ─── Historique ───────────────────────────────────────────────────────────────
+// ─── Historique (cache local AsyncStorage) ────────────────────────────────────
 
-/**
- * GET /api/history/my-images
- * Accès enregistrés sur les images de l'utilisateur connecté.
- * Inclut les accès APP (via Secugram) et FILIGRANE (détection tierce).
- *
- * Réponse attendue :
- * { accesses: [{ _id, image_id, image_description, preview_url,
- *                viewer_username, accessed_at, type: 'app'|'watermark' }] }
- *
- * @returns {{ accesses: Array<NormalizedAccessEntry> }}
- */
-export async function fetchMyImageHistory(token) {
-  const res = await fetchWithTimeout(`${API_BASE_URL}/history/my-images`, {
-    headers: authHeaders(token),
-  });
-  const data = await handleResponse(res);
-  return { accesses: (data.accesses ?? []).map(normalizeAccessEntry) };
+const historyKey   = (username) => `history_${username}`;
+const myAccessKey  = (username) => `myaccess_${username}`;
+
+export async function logAccess({ imageId, imageDescription, viewerUsername, ownerUsername }) {
+  const entry = {
+    id:                `${Date.now()}_${Math.random().toString(36).slice(2)}`,
+    image_id:          imageId,
+    image_description: imageDescription,
+    preview_uri:       null,
+    viewer:            viewerUsername,
+    owner:             ownerUsername,
+    date:              new Date().toLocaleString('fr-FR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }),
+    type:              'app',
+  };
+  // Côté propriétaire : "qui a vu mes images"
+  const hKey = historyKey(ownerUsername);
+  const hRaw = await AsyncStorage.getItem(hKey);
+  const hList = hRaw ? JSON.parse(hRaw) : [];
+  hList.unshift(entry);
+  await AsyncStorage.setItem(hKey, JSON.stringify(hList));
+
+  // Côté viewer : "images que j'ai consultées"
+  const aKey = myAccessKey(viewerUsername);
+  const aRaw = await AsyncStorage.getItem(aKey);
+  const aList = aRaw ? JSON.parse(aRaw) : [];
+  aList.unshift(entry);
+  await AsyncStorage.setItem(aKey, JSON.stringify(aList));
 }
 
-/**
- * GET /api/history/my-accesses
- * Images auxquelles l'utilisateur connecté a accédé (en tant que viewer).
- *
- * Réponse attendue :
- * { accesses: [{ _id, image_id, image_description, preview_url,
- *                owner_username, accessed_at }] }
- *
- * @returns {{ accesses: Array<NormalizedAccessEntry> }}
- */
-export async function fetchMyAccesses(token) {
-  const res = await fetchWithTimeout(`${API_BASE_URL}/history/my-accesses`, {
-    headers: authHeaders(token),
-  });
-  const data = await handleResponse(res);
-  return { accesses: (data.accesses ?? []).map(normalizeAccessEntry) };
+export async function fetchMyImageHistory(_token, username) {
+  if (!username) return { accesses: [] };
+  const raw = await AsyncStorage.getItem(historyKey(username));
+  return { accesses: raw ? JSON.parse(raw) : [] };
+}
+
+export async function fetchMyAccesses(_token, username) {
+  if (!username) return { accesses: [] };
+  const raw = await AsyncStorage.getItem(myAccessKey(username));
+  return { accesses: raw ? JSON.parse(raw) : [] };
+}
+
+// ─── Feed ─────────────────────────────────────────────────────────────────────
+
+const FEED_KEY      = 'feed_all';
+const requestsKey   = (username) => `requests_${username}`;
+
+export async function addToFeed(post) {
+  const raw  = await AsyncStorage.getItem(FEED_KEY);
+  const list = raw ? JSON.parse(raw) : [];
+  if (!list.find(p => p.image_id === post.image_id)) {
+    list.unshift(post);
+    await AsyncStorage.setItem(FEED_KEY, JSON.stringify(list));
+  }
+}
+
+export async function fetchFeed() {
+  const raw = await AsyncStorage.getItem(FEED_KEY);
+  return { posts: raw ? JSON.parse(raw) : [] };
+}
+
+export async function requestImageAccess({ imageId, imageDescription, ownerUsername, requesterUsername }) {
+  const req = {
+    id:                `req_${Date.now()}`,
+    image_id:          imageId,
+    image_description: imageDescription,
+    requester_username: requesterUsername,
+    owner_username:    ownerUsername,
+    date:              new Date().toLocaleString('fr-FR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }),
+    status:            'pending',
+  };
+  // Stocker la demande chez le propriétaire
+  const rKey = requestsKey(ownerUsername);
+  const rRaw = await AsyncStorage.getItem(rKey);
+  const rList = rRaw ? JSON.parse(rRaw) : [];
+  // Éviter les doublons
+  if (!rList.find(r => r.image_id === imageId && r.requester_username === requesterUsername)) {
+    rList.unshift(req);
+    await AsyncStorage.setItem(rKey, JSON.stringify(rList));
+  }
+  // Ajouter dans "Partagées" du demandeur avec statut pending
+  const sKey = sharedKey(requesterUsername);
+  const sRaw = await AsyncStorage.getItem(sKey);
+  const sList = sRaw ? JSON.parse(sRaw) : [];
+  if (!sList.find(p => p.image_id === imageId)) {
+    sList.unshift({
+      image_id:      imageId,
+      description:   imageDescription,
+      owner_username: ownerUsername,
+      date_shared:   req.date,
+      preview_uri:   null,
+      status:        'pending',
+      maxViews:      0,
+      blocked:       false,
+    });
+    await AsyncStorage.setItem(sKey, JSON.stringify(sList));
+  }
+}
+
+export async function fetchAccessRequests(ownerUsername) {
+  const raw = await AsyncStorage.getItem(requestsKey(ownerUsername));
+  return { requests: raw ? JSON.parse(raw) : [] };
+}
+
+export async function grantAccessRequest(token, ownerUsername, imageId, requesterUsername) {
+  // 1. Appel TdC pour autoriser
+  await authorizePhoto(token, imageId, [requesterUsername], ownerUsername);
+  // 2. Mettre à jour la demande → granted
+  const rKey = requestsKey(ownerUsername);
+  const rRaw = await AsyncStorage.getItem(rKey);
+  const rList = rRaw ? JSON.parse(rRaw) : [];
+  const updated = rList.map(r =>
+    r.image_id === imageId && r.requester_username === requesterUsername
+      ? { ...r, status: 'granted' } : r
+  );
+  await AsyncStorage.setItem(rKey, JSON.stringify(updated));
+  // 3. Mettre à jour "Partagées" du demandeur → active
+  const sKey = sharedKey(requesterUsername);
+  const sRaw = await AsyncStorage.getItem(sKey);
+  const sList = sRaw ? JSON.parse(sRaw) : [];
+  const updatedS = sList.map(p =>
+    p.image_id === imageId ? { ...p, status: 'active', maxViews: 3 } : p
+  );
+  await AsyncStorage.setItem(sKey, JSON.stringify(updatedS));
+  // 4. Stocker aussi dans shared pour que addToSharedPhotos soit cohérent
+  await addToSharedPhotos(
+    sList.find(p => p.image_id === imageId) ?? { image_id: imageId, description: '', owner_username: ownerUsername },
+    [requesterUsername]
+  );
 }

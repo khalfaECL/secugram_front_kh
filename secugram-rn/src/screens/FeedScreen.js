@@ -1,302 +1,294 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
-  View, Text, FlatList, StyleSheet, Image,
-  TouchableOpacity, RefreshControl, ActivityIndicator, ScrollView,
+  View, Text, FlatList, Image, Modal, Animated,
+  TouchableOpacity, RefreshControl, ActivityIndicator, Alert, StyleSheet,
 } from 'react-native';
 import { Radius } from '../theme';
-import { useTheme } from '../hooks/useTheme';
-import UploadModal from '../components/UploadModal';
 import { useAuth } from '../hooks/useAuth';
+import { useTheme } from '../hooks/useTheme';
 import * as API from '../api';
 
-const MOCK_PHOTOS = [
-  {
-    image_id: 'img_001', owner_username: 'alice_dupont',
-    description: 'Vacances Nice 2025 🌊', date_creation: '26 fév.',
-    locked: true, authorized: ['bob_martin', 'charlie_durand'],
-    preview_uri: 'https://picsum.photos/seed/beach/800/800',
-  },
-  {
-    image_id: 'img_002', owner_username: 'bob_martin',
-    description: 'Réunion équipe Lyon ☕', date_creation: '1 mars',
-    locked: false, authorized: ['alice_dupont', 'charlie_durand', 'emma_rousseau'],
-    preview_uri: 'https://picsum.photos/seed/city/800/800',
-  },
-  {
-    image_id: 'img_003', owner_username: 'charlie_durand',
-    description: 'Randonnée Vercors 🌲', date_creation: '3 mars',
-    locked: true, authorized: ['alice_dupont', 'dave_leclerc'],
-    preview_uri: 'https://picsum.photos/seed/forest/800/800',
-  },
-  {
-    image_id: 'img_004', owner_username: 'emma_rousseau',
-    description: 'Week-end Chamonix ⛰️', date_creation: '8 mars',
-    locked: false, authorized: ['alice_dupont', 'bob_martin', 'felix_moreau'],
-    preview_uri: 'https://picsum.photos/seed/mountain/800/800',
-  },
-];
+// ── Ephemeral Viewer ─────────────────────────────────────────────────────────
 
-const MOCK_USERS = [
-  { user_id: 'u2', username: 'bob_martin',     display: 'Bob' },
-  { user_id: 'u3', username: 'charlie_durand', display: 'Charlie' },
-  { user_id: 'u4', username: 'dave_leclerc',   display: 'Dave' },
-  { user_id: 'u5', username: 'emma_rousseau',  display: 'Emma' },
-  { user_id: 'u6', username: 'felix_moreau',   display: 'Félix' },
-];
-
-// ── Story Bubble ─────────────────────────────────────────────────────────────
-
-function StoryBubble({ user, isAdd, onPress }) {
+function EphemeralViewer({ uri, durationSec = 5, onClose }) {
   const { colors } = useTheme();
-  const label = isAdd ? '+' : (user.display || user.username).slice(0, 1).toUpperCase();
-  const name  = isAdd ? 'Partager' : (user.display || user.username.split('_')[0]);
+  const [secondsLeft, setSecondsLeft] = useState(durationSec);
+  const progress = useRef(new Animated.Value(1)).current;
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setSecondsLeft(s => { if (s <= 1) { clearInterval(interval); return 0; } return s - 1; });
+    }, 1000);
+    Animated.timing(progress, { toValue: 0, duration: durationSec * 1000, useNativeDriver: false }).start();
+    const timeout = setTimeout(onClose, durationSec * 1000);
+    return () => { clearInterval(interval); clearTimeout(timeout); };
+  }, []);
+
   return (
-    <TouchableOpacity style={{ alignItems: 'center', marginRight: 18, width: 64 }} onPress={onPress} activeOpacity={0.75}>
-      <View style={{
-        width: 64, height: 64, borderRadius: 32,
-        borderWidth: 2.5, borderColor: isAdd ? colors.border : colors.accent,
-        borderStyle: isAdd ? 'dashed' : 'solid',
-        alignItems: 'center', justifyContent: 'center', marginBottom: 6,
-        shadowColor: colors.accent, shadowOpacity: isAdd ? 0 : 0.3,
-        shadowRadius: 8, elevation: isAdd ? 0 : 4,
-        shadowOffset: { width: 0, height: 2 },
-      }}>
-        <View style={{
-          width: 56, height: 56, borderRadius: 28,
-          backgroundColor: colors.card,
-          alignItems: 'center', justifyContent: 'center',
-          borderWidth: 2, borderColor: colors.bg,
-        }}>
-          <Text style={{ fontSize: isAdd ? 24 : 20, fontWeight: isAdd ? '300' : '700', color: isAdd ? colors.accent : colors.textPri }}>
-            {label}
-          </Text>
+    <Modal visible animationType="fade" transparent statusBarTranslucent>
+      <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.95)', alignItems: 'center', justifyContent: 'center' }}>
+        {/* Progress bar */}
+        <View style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 3, backgroundColor: 'rgba(255,255,255,0.1)' }}>
+          <Animated.View style={{ height: 3, backgroundColor: colors.accent, width: progress.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] }) }}/>
         </View>
+        <Image source={{ uri }} style={{ width: '100%', aspectRatio: 1 }} resizeMode="contain"/>
+        <View style={{ position: 'absolute', top: 18, right: 18, alignItems: 'center' }}>
+          <Text style={{ fontSize: 22, fontWeight: '800', color: '#fff' }}>{secondsLeft}s</Text>
+        </View>
+        <TouchableOpacity
+          style={{ position: 'absolute', bottom: 40, alignSelf: 'center', backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: 20, paddingHorizontal: 24, paddingVertical: 10 }}
+          onPress={onClose}
+        >
+          <Text style={{ color: '#fff', fontWeight: '600' }}>Fermer</Text>
+        </TouchableOpacity>
       </View>
-      <Text style={{ fontSize: 11, color: colors.textSec, textAlign: 'center' }} numberOfLines={1}>{name}</Text>
-    </TouchableOpacity>
+    </Modal>
+  );
+}
+
+// ── Blurred placeholder ───────────────────────────────────────────────────────
+
+function EncryptedPlaceholder({ uri, size }) {
+  return (
+    <View style={{ width: '100%', height: size, backgroundColor: '#080810', overflow: 'hidden' }}>
+      {uri && (
+        <Image source={{ uri }} style={{ width: '100%', height: size, opacity: 0.12 }} blurRadius={20} resizeMode="cover"/>
+      )}
+      {/* Hex pattern overlay */}
+      <View style={StyleSheet.absoluteFill}>
+        {Array.from({ length: 10 }).map((_, i) => (
+          <Text key={i} style={{ fontFamily: 'Courier New', fontSize: 9, color: 'rgba(255,107,0,0.08)', letterSpacing: 2, marginTop: 2 }}>
+            {'4A2F 8C1E B37D 9F56 2A4E 1C8B 5F3D 7E2A '.repeat(3)}
+          </Text>
+        ))}
+      </View>
+      <View style={[StyleSheet.absoluteFill, { alignItems: 'center', justifyContent: 'center' }]}>
+        <View style={{ alignItems: 'center' }}>
+          <View style={{
+            width: 20, height: 13,
+            borderTopWidth: 3, borderLeftWidth: 3, borderRightWidth: 3,
+            borderTopLeftRadius: 10, borderTopRightRadius: 10,
+            borderColor: 'rgba(255,255,255,0.5)', marginBottom: -1,
+          }}/>
+          <View style={{ width: 32, height: 20, borderRadius: 5, backgroundColor: 'rgba(255,255,255,0.5)' }}/>
+        </View>
+        <Text style={{ fontSize: 10, fontFamily: 'Courier New', letterSpacing: 3, color: 'rgba(255,255,255,0.4)', marginTop: 10 }}>
+          AES-256-GCM
+        </Text>
+      </View>
+    </View>
   );
 }
 
 // ── Post Card ────────────────────────────────────────────────────────────────
 
-function PostCard({ photo }) {
+function PostCard({ item, currentUsername, isPending, onRequestAccess, token }) {
   const { colors } = useTheme();
-  const initials = (photo.owner_username || 'U').slice(0, 2).toUpperCase();
+  const isOwner      = item.owner_username === currentUsername;
+  const isAuthorized = isOwner || (item.authorized ?? []).includes(currentUsername);
+  const initials     = (item.owner_username || '?').slice(0, 2).toUpperCase();
+  const IMG_H        = 320;
+  const [decryptedUri, setDecryptedUri] = useState(null);
+  const [decrypting,   setDecrypting]   = useState(false);
+
+  const handleTapImage = async () => {
+    if (!isAuthorized || isOwner) return;
+    if (decryptedUri) { setDecryptedUri(null); return; } // toggle off
+    setDecrypting(true);
+    try {
+      const { signed_url } = await API.recordAccess(token, item.image_id, currentUsername);
+      setDecryptedUri(signed_url);
+    } catch (e) {
+      Alert.alert('Erreur', e.message || 'Impossible de déchiffrer.');
+    } finally {
+      setDecrypting(false);
+    }
+  };
+
   return (
     <View style={{ backgroundColor: colors.bg }}>
       {/* Header */}
-      <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12 }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 10, gap: 10 }}>
         <View style={{
-          width: 40, height: 40, borderRadius: 20,
+          width: 38, height: 38, borderRadius: 19,
           borderWidth: 2, borderColor: colors.accent,
           alignItems: 'center', justifyContent: 'center',
         }}>
-          <View style={{
-            width: 34, height: 34, borderRadius: 17,
-            backgroundColor: colors.card,
-            alignItems: 'center', justifyContent: 'center',
-            borderWidth: 1.5, borderColor: colors.bg,
-          }}>
-            <Text style={{ fontSize: 12, fontWeight: '700', color: colors.accent }}>{initials}</Text>
-          </View>
+          <Text style={{ fontSize: 12, fontWeight: '700', color: colors.accent }}>{initials}</Text>
         </View>
-        <View style={{ flex: 1, marginLeft: 11 }}>
-          <Text style={{ fontSize: 13, fontWeight: '600', color: colors.textPri }}>{photo.owner_username}</Text>
-          <Text style={{ fontSize: 11, color: colors.textSec, marginTop: 1 }}>{photo.date_creation}</Text>
+        <View style={{ flex: 1 }}>
+          <Text style={{ fontSize: 13, fontWeight: '700', color: colors.textPri }}>{item.owner_username}</Text>
+          <Text style={{ fontSize: 10, color: colors.textMut, fontFamily: 'Courier New' }}>{item.date_creation ?? ''}</Text>
         </View>
         <View style={{
-          backgroundColor: photo.locked ? 'rgba(255,69,58,0.1)' : 'rgba(50,215,75,0.1)',
-          borderRadius: Radius.full, paddingHorizontal: 10, paddingVertical: 4,
-          borderWidth: 1,
-          borderColor: photo.locked ? 'rgba(255,69,58,0.25)' : 'rgba(50,215,75,0.25)',
+          backgroundColor: isAuthorized ? 'rgba(50,215,75,0.1)' : 'rgba(255,107,0,0.1)',
+          borderRadius: Radius.full, paddingHorizontal: 9, paddingVertical: 3,
+          borderWidth: 1, borderColor: isAuthorized ? 'rgba(50,215,75,0.25)' : 'rgba(255,107,0,0.25)',
         }}>
-          <Text style={{ fontSize: 10, fontWeight: '600', color: photo.locked ? colors.danger : colors.success }}>
-            {photo.locked ? '🔒 Chiffré' : '🔓 Visible'}
+          <Text style={{ fontSize: 9, fontFamily: 'Courier New', color: isAuthorized ? '#30d158' : colors.accent }}>
+            {isAuthorized ? 'AUTORISÉ' : 'CHIFFRÉ'}
           </Text>
         </View>
       </View>
 
       {/* Image */}
-      <View style={{ width: '100%', aspectRatio: 1 }}>
-        {photo.preview_uri
-          ? <Image source={{ uri: photo.preview_uri }} style={{ width: '100%', height: '100%', resizeMode: 'cover' }}/>
-          : (
-            <View style={{ flex: 1, backgroundColor: '#080810', overflow: 'hidden' }}>
-              <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, padding: 8 }}>
-                {Array.from({ length: 8 }).map((_, i) => (
-                  <Text key={i} style={{ fontFamily: 'Courier New', fontSize: 10, color: 'rgba(255,107,0,0.1)', letterSpacing: 2, marginBottom: 2 }}>
-                    4A2F 8C1E B37D 9F56 2A4E 1C8B 5F3D 7E2A
-                  </Text>
-                ))}
+      <TouchableOpacity onPress={handleTapImage} activeOpacity={isAuthorized && !isOwner ? 0.85 : 1}>
+        {isOwner && item.preview_uri ? (
+          <Image source={{ uri: item.preview_uri }} style={{ width: '100%', height: IMG_H }} resizeMode="cover"/>
+        ) : (
+          <View>
+            <EncryptedPlaceholder uri={item.preview_uri} size={IMG_H}/>
+            {isAuthorized && !isOwner && (
+              <View style={{ position: 'absolute', bottom: 12, alignSelf: 'center', backgroundColor: 'rgba(0,0,0,0.6)', borderRadius: 20, paddingHorizontal: 16, paddingVertical: 6, borderWidth: 1, borderColor: 'rgba(255,255,255,0.2)' }}>
+                {decrypting
+                  ? <ActivityIndicator size="small" color="#fff"/>
+                  : <Text style={{ color: '#fff', fontSize: 12, fontWeight: '600' }}>Appuyer pour déchiffrer</Text>
+                }
               </View>
-              <View style={{ ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.55)' }}>
-                <Text style={{ fontSize: 44, marginBottom: 12 }}>🔒</Text>
-                <Text style={{ fontSize: 11, fontFamily: 'Courier New', letterSpacing: 3, color: 'rgba(255,255,255,0.5)', textTransform: 'uppercase' }}>
-                  CONTENU CHIFFRÉ
-                </Text>
-                <Text style={{ fontSize: 10, color: colors.accent, fontFamily: 'Courier New', marginTop: 4, letterSpacing: 1 }}>
-                  AES-256-GCM
-                </Text>
-              </View>
-            </View>
-          )
-        }
-      </View>
+            )}
+          </View>
+        )}
+      </TouchableOpacity>
+
+      {/* Ephemeral viewer */}
+      {decryptedUri && (
+        <EphemeralViewer uri={decryptedUri} durationSec={5} onClose={() => setDecryptedUri(null)}/>
+      )}
 
       {/* Footer */}
-      <View style={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: 16 }}>
-        <Text style={{ fontSize: 14, color: colors.textPri, lineHeight: 20, marginBottom: 10 }} numberOfLines={2}>
-          {photo.description}
-        </Text>
-        {(photo.authorized?.length ?? 0) > 0 && (
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-            <View style={{ flexDirection: 'row' }}>
-              {photo.authorized.slice(0, 4).map((u, i) => (
-                <View key={u} style={{
-                  width: 24, height: 24, borderRadius: 12,
-                  backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center',
-                  borderWidth: 1.5, borderColor: colors.bg, marginLeft: i === 0 ? 0 : -8,
-                }}>
-                  <Text style={{ fontSize: 9, fontWeight: '700', color: '#fff' }}>{u[0].toUpperCase()}</Text>
-                </View>
-              ))}
-            </View>
-            <Text style={{ fontSize: 12, color: colors.textSec }}>
-              {photo.authorized.length} personne{photo.authorized.length > 1 ? 's' : ''} autorisée{photo.authorized.length > 1 ? 's' : ''}
+      <View style={{ paddingHorizontal: 14, paddingTop: 10, paddingBottom: 14 }}>
+        {(item.description || item.caption) ? (
+          <Text style={{ fontSize: 13, color: colors.textPri, marginBottom: 10, lineHeight: 19 }}>
+            <Text style={{ fontWeight: '700' }}>{item.owner_username} </Text>
+            {item.description ?? item.caption}
+          </Text>
+        ) : null}
+
+        {!isOwner && !isAuthorized && (
+          <TouchableOpacity
+            style={{
+              backgroundColor: isPending ? colors.surface : colors.accent,
+              borderRadius: Radius.lg, paddingVertical: 12,
+              alignItems: 'center',
+              borderWidth: isPending ? 1 : 0,
+              borderColor: colors.border,
+              opacity: isPending ? 0.65 : 1,
+            }}
+            onPress={() => !isPending && onRequestAccess(item)}
+            activeOpacity={isPending ? 1 : 0.85}
+          >
+            <Text style={{ fontSize: 13, fontWeight: '700', color: isPending ? colors.textSec : '#fff' }}>
+              {isPending ? 'En attente de réponse…' : 'Demander l\'accès'}
             </Text>
+          </TouchableOpacity>
+        )}
+
+        {!isOwner && isAuthorized && (
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: '#30d158' }}/>
+            <Text style={{ fontSize: 11, color: '#30d158', fontFamily: 'Courier New' }}>ACCÈS AUTORISÉ</Text>
+          </View>
+        )}
+
+        {isOwner && (
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: colors.accent }}/>
+            <Text style={{ fontSize: 11, color: colors.accent, fontFamily: 'Courier New' }}>VOTRE IMAGE</Text>
           </View>
         )}
       </View>
+
+      <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: colors.border }}/>
     </View>
   );
 }
 
-// ── Screen ───────────────────────────────────────────────────────────────────
+// ── Screen ────────────────────────────────────────────────────────────────────
 
 export default function FeedScreen() {
-  const { session } = useAuth();
-  const { colors } = useTheme();
-  const [photos,     setPhotos]     = useState([]);
-  const [users,      setUsers]      = useState(MOCK_USERS);
-  const [loading,    setLoading]    = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [showUpload, setShowUpload] = useState(false);
+  const { session }   = useAuth();
+  const { colors }    = useTheme();
+  const [posts, setPosts]             = useState([]);
+  const [loading, setLoading]         = useState(true);
+  const [refreshing, setRefreshing]   = useState(false);
+  const [pendingIds, setPendingIds]   = useState({}); // { image_id: true }
 
-  const loadData = useCallback(async () => {
+  const load = useCallback(async () => {
     if (session.isDemo) {
-      setPhotos(MOCK_PHOTOS);
-      setUsers(MOCK_USERS);
+      setPosts([]);
       setLoading(false);
       setRefreshing(false);
       return;
     }
+    const { posts: p } = await API.fetchFeed();
+    setPosts(p);
+    // Marquer les demandes déjà envoyées
+    const { photos: shared } = await API.fetchSharedPhotos(null, session.username).catch(() => ({ photos: [] }));
+    const pending = {};
+    shared.filter(s => s.status === 'pending').forEach(s => { pending[s.image_id] = true; });
+    setPendingIds(pending);
+    setLoading(false);
+    setRefreshing(false);
+  }, [session.username, session.isDemo]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const onRefresh = () => { setRefreshing(true); load(); };
+
+  const handleRequestAccess = async (item) => {
     try {
-      const [photosData, usersData] = await Promise.all([
-        API.fetchMyPhotos(session.token),
-        API.fetchUsers(session.token),
-      ]);
-      setPhotos(photosData.photos ?? []);
-      setUsers(usersData.users ?? MOCK_USERS);
-    } catch {
-      setPhotos(MOCK_PHOTOS);
-      setUsers(MOCK_USERS);
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
+      await API.requestImageAccess({
+        imageId:           item.image_id,
+        imageDescription:  item.description ?? item.caption ?? '',
+        ownerUsername:     item.owner_username,
+        requesterUsername: session.username,
+      });
+      setPendingIds(p => ({ ...p, [item.image_id]: true }));
+    } catch (e) {
+      Alert.alert('Erreur', e.message || 'Impossible d\'envoyer la demande.');
     }
-  }, [session]);
+  };
 
-  useEffect(() => { loadData(); }, [loadData]);
-  const onRefresh = () => { setRefreshing(true); loadData(); };
-
-  if (loading) return (
-    <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.bg }}>
-      <ActivityIndicator color={colors.accent} size="large"/>
-      <Text style={{ marginTop: 12, fontSize: 12, color: colors.textSec, fontFamily: 'Courier New' }}>
-        Chargement sécurisé…
-      </Text>
-    </View>
-  );
-
-  const ListHeader = () => (
-    <View>
-      <ScrollView
-        horizontal showsHorizontalScrollIndicator={false}
-        contentContainerStyle={{ paddingHorizontal: 16 }}
-        style={{ backgroundColor: colors.bg, paddingVertical: 16 }}
-      >
-        <StoryBubble isAdd onPress={() => setShowUpload(true)}/>
-        {users.map(u => <StoryBubble key={u.user_id} user={u}/>)}
-      </ScrollView>
-      <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: colors.border }}/>
-    </View>
-  );
+  if (loading) {
+    return (
+      <View style={{ flex: 1, backgroundColor: colors.bg, alignItems: 'center', justifyContent: 'center' }}>
+        <ActivityIndicator color={colors.accent} size="large"/>
+      </View>
+    );
+  }
 
   return (
-    <View style={{ flex: 1, backgroundColor: colors.bg }}>
-      <FlatList
-        data={photos}
-        keyExtractor={p => p.image_id}
-        renderItem={({ item }) => <PostCard photo={item}/>}
-        ListHeaderComponent={ListHeader}
-        ItemSeparatorComponent={() => <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: colors.border, marginVertical: 4 }}/>}
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: 100 }}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.accent}/>
-        }
-        ListEmptyComponent={
-          <View style={{ alignItems: 'center', paddingTop: 80, paddingHorizontal: 32 }}>
-            <Text style={{ fontSize: 56, marginBottom: 16 }}>📷</Text>
-            <Text style={{ fontSize: 18, fontWeight: '700', color: colors.textPri, marginBottom: 8 }}>
-              Aucune photo partagée
-            </Text>
-            <Text style={{ fontSize: 13, color: colors.textSec, textAlign: 'center', marginBottom: 24 }}>
-              Partagez votre première photo sécurisée
-            </Text>
-            <TouchableOpacity
-              style={{ backgroundColor: colors.accent, borderRadius: Radius.full, paddingVertical: 12, paddingHorizontal: 28 }}
-              onPress={() => setShowUpload(true)}
-            >
-              <Text style={{ fontSize: 14, fontWeight: '700', color: '#fff' }}>+ Partager une photo</Text>
-            </TouchableOpacity>
-          </View>
-        }
-      />
-
-      {/* FAB */}
-      <TouchableOpacity
-        style={{
-          position: 'absolute', bottom: 28, right: 20,
-          width: 56, height: 56, borderRadius: 28,
-          backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center',
-          shadowColor: colors.accent, shadowOffset: { width: 0, height: 6 },
-          shadowOpacity: 0.5, shadowRadius: 16, elevation: 12,
-        }}
-        onPress={() => setShowUpload(true)} activeOpacity={0.85}
-      >
-        <Text style={{ color: '#fff', fontSize: 28, fontWeight: '300', lineHeight: 33 }}>+</Text>
-      </TouchableOpacity>
-
-      <UploadModal
-        visible={showUpload}
-        onClose={() => setShowUpload(false)}
-        onSuccess={({ imageId, uri, description, authorized }) => {
-          const newPhoto = {
-            image_id: imageId,
-            owner_username: session.username,
-            description,
-            date_creation: "À l'instant",
-            locked: true,
-            authorized,
-            preview_uri: uri,
-          };
-          setPhotos(prev => [newPhoto, ...prev]);
-          setShowUpload(false);
-          if (!session.isDemo) loadData();
-        }}
-        users={users}
-      />
-    </View>
+    <FlatList
+      data={posts}
+      keyExtractor={p => p.image_id}
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.accent}/>}
+      contentContainerStyle={{ paddingBottom: 40 }}
+      showsVerticalScrollIndicator={false}
+      ListHeaderComponent={
+        <View style={{ paddingHorizontal: 16, paddingTop: 16, paddingBottom: 8 }}>
+          <Text style={{ fontSize: 10, color: colors.textSec, fontFamily: 'Courier New', letterSpacing: 2 }}>
+            FEED PUBLIC ({posts.length})
+          </Text>
+        </View>
+      }
+      ListEmptyComponent={
+        <View style={{ alignItems: 'center', paddingTop: 80, paddingHorizontal: 32 }}>
+          <Text style={{ fontSize: 52, marginBottom: 16 }}>📷</Text>
+          <Text style={{ fontSize: 17, fontWeight: '700', color: colors.textPri, marginBottom: 8 }}>Aucune publication</Text>
+          <Text style={{ fontSize: 13, color: colors.textSec, textAlign: 'center', lineHeight: 20 }}>
+            Déposez une image depuis "Mes images" pour qu'elle apparaisse ici.
+          </Text>
+        </View>
+      }
+      renderItem={({ item }) => (
+        <PostCard
+          item={item}
+          currentUsername={session.username}
+          isPending={!!pendingIds[item.image_id]}
+          onRequestAccess={handleRequestAccess}
+          token={session.token}
+        />
+      )}
+    />
   );
 }

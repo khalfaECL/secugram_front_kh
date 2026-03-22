@@ -235,9 +235,9 @@ export default function SharedScreen() {
       setPhotos(MOCK_SHARED);
       return;
     }
-    API.fetchSharedPhotos(session.token)
+    API.fetchSharedPhotos(session.token, session.username)
       .then(({ photos: p }) => setPhotos(p))
-      .catch(() => setPhotos(MOCK_SHARED));
+      .catch(() => setPhotos([]));
   }, []);
 
   const getAccessStatus = (item) => {
@@ -262,8 +262,14 @@ export default function SharedScreen() {
     try {
       let viewingPhoto = { ...item };
       if (!session.isDemo) {
-        const { signed_url } = await API.recordAccess(session.token, id);
+        const { signed_url } = await API.recordAccess(session.token, id, session.username);
         viewingPhoto = { ...item, preview_uri: signed_url };
+        API.logAccess({
+          imageId: id,
+          imageDescription: item.description,
+          viewerUsername: session.username,
+          ownerUsername: item.owner_username,
+        }).catch(() => {});
       }
       setViewCount(c => ({ ...c, [id]: (c[id] ?? 0) + 1 }));
       setLastViewedAt(t => ({ ...t, [id]: Date.now() }));

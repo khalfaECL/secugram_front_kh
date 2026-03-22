@@ -9,7 +9,7 @@
  */
 
 export const API_BASE_URL = __DEV__
-  ? 'http://10.26.138.187:8300'          // Device physique → Tiers de Confiance (port 8300)
+  ? 'http://localhost:8300'              // Device physique → PC via adb reverse (port 8300)
   : 'https://api.secugram.io';           // Production
 
 /**

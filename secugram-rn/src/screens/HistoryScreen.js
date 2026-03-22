@@ -77,13 +77,12 @@ export default function HistoryScreen() {
 
   useEffect(() => {
     if (session.isDemo) return;
-    Promise.all([
-      API.fetchMyImageHistory(session.token),
-      API.fetchMyAccesses(session.token),
-    ]).then(([{ accesses: imageAcc }, { accesses: myAcc }]) => {
-      setMyImageAccesses(imageAcc);
-      setMyAccesses(myAcc);
-    }).catch(() => {});
+    API.fetchMyImageHistory(session.token, session.username)
+      .then(({ accesses }) => setMyImageAccesses(accesses))
+      .catch(() => {});
+    API.fetchMyAccesses(session.token, session.username)
+      .then(({ accesses }) => setMyAccesses(accesses))
+      .catch(() => {});
   }, []);
 
   const data = tab === 'my_images' ? myImageAccesses : myAccesses;

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity, Image,
-  Modal, ScrollView, TextInput, Alert, Dimensions,
+  Modal, ScrollView, TextInput, Alert, Dimensions, ActivityIndicator,
 } from 'react-native';
 import { Radius, Spacing } from '../theme';
 import { useAuth } from '../hooks/useAuth';
@@ -44,31 +44,51 @@ const MOCK_MY_PHOTOS = [
   },
 ];
 
-const KNOWN_USERS = ['khakfa_youssef', 'chammakhi_malak', 'agrebi_marwane', 'krid_amani', 'felix_moreau'];
 
 // ── Photo Detail Modal ────────────────────────────────────────────────────────
 
-function PhotoDetailModal({ photo, visible, onClose, onDelete, onUpdateAuthorized, onToggleBlock, colors }) {
+function PhotoDetailModal({ photo, visible, onClose, onDelete, onAddUser, onRemoveUser, onToggleBlock, onGrantRequest, colors }) {
   const [newUser, setNewUser] = useState('');
   const [authorized, setAuthorized] = useState(photo?.authorized ?? []);
-  const [tab, setTab] = useState('auth'); // 'auth' | 'history'
+  const [tab, setTab] = useState('auth'); // 'auth' | 'history' | 'requests'
+  const [requests, setRequests] = useState([]);
+  const [addLoading, setAddLoading] = useState(false);
+  const [addError, setAddError]     = useState('');
+
+  useEffect(() => {
+    if (photo) setAuthorized(photo.authorized ?? []);
+  }, [photo]);
+
+  useEffect(() => {
+    if (!photo || !visible) return;
+    API.fetchAccessRequests(photo.owner_username ?? '')
+      .then(({ requests: r }) => setRequests(r.filter(req => req.image_id === photo.image_id && req.status === 'pending')))
+      .catch(() => {});
+  }, [photo, visible]);
 
   if (!photo) return null;
 
-  const addUser = () => {
+  const addUser = async () => {
     const u = newUser.trim().toLowerCase();
     if (!u || authorized.includes(u)) { setNewUser(''); return; }
-    const updated = [...authorized, u];
-    setAuthorized(updated);
-    onUpdateAuthorized(photo.image_id, updated);
-    setNewUser('');
+    setAddLoading(true);
+    setAddError('');
+    try {
+      await onAddUser(photo.image_id, u);
+      setAuthorized(prev => [...prev, u]);
+      setNewUser('');
+    } catch (e) {
+      setAddError(e.message || 'Utilisateur introuvable.');
+    } finally {
+      setAddLoading(false);
+    }
   };
 
   const removeUser = (u) => {
-    const updated = authorized.filter(x => x !== u);
-    setAuthorized(updated);
-    onUpdateAuthorized(photo.image_id, updated);
+    setAuthorized(prev => prev.filter(x => x !== u));
+    onRemoveUser(photo.image_id, u);
   };
+
 
   const confirmDelete = () => {
     Alert.alert('Supprimer', 'Supprimer définitivement cette image ?', [
@@ -98,14 +118,14 @@ function PhotoDetailModal({ photo, visible, onClose, onDelete, onUpdateAuthorize
 
             {/* Tabs */}
             <View style={{ flexDirection: 'row', backgroundColor: colors.surface, borderRadius: Radius.full, padding: 3, marginBottom: 20 }}>
-              {[['auth', '🔐 Autorisations'], ['history', '📋 Historique']].map(([key, label]) => (
+              {[['auth', 'Autorisations'], ['history', 'Historique'], ['requests', `Demandes${requests.length > 0 ? ` (${requests.length})` : ''}`]].map(([key, label]) => (
                 <TouchableOpacity
                   key={key}
                   style={[{ flex: 1, paddingVertical: 9, borderRadius: Radius.full, alignItems: 'center' },
-                    tab === key && { backgroundColor: colors.card }]}
+                    tab === key && { backgroundColor: key === 'requests' && requests.length > 0 ? colors.accent : colors.card }]}
                   onPress={() => setTab(key)}
                 >
-                  <Text style={{ fontSize: 13, fontWeight: '600', color: tab === key ? colors.textPri : colors.textSec }}>{label}</Text>
+                  <Text style={{ fontSize: 11, fontWeight: '600', color: tab === key ? (key === 'requests' && requests.length > 0 ? '#fff' : colors.textPri) : colors.textSec }}>{label}</Text>
                 </TouchableOpacity>
               ))}
             </View>
@@ -138,32 +158,42 @@ function PhotoDetailModal({ photo, visible, onClose, onDelete, onUpdateAuthorize
                 </Text>
 
                 {/* Add by identifier */}
-                <View style={{
-                  flexDirection: 'row', alignItems: 'center', gap: 8,
-                  backgroundColor: colors.surface, borderRadius: Radius.lg,
-                  borderWidth: 1, borderColor: colors.border,
-                  paddingHorizontal: 14, paddingVertical: 10, marginBottom: 14,
-                }}>
-                  <TextInput
-                    style={{ flex: 1, fontSize: 14, color: colors.textPri }}
-                    placeholder="Ajouter par identifiant..."
-                    placeholderTextColor={colors.textMut}
-                    value={newUser}
-                    onChangeText={setNewUser}
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    onSubmitEditing={addUser}
-                    returnKeyType="done"
-                  />
-                  <TouchableOpacity
-                    style={{
-                      backgroundColor: newUser.trim() ? colors.accent : colors.border,
-                      borderRadius: Radius.sm, paddingHorizontal: 14, paddingVertical: 6,
-                    }}
-                    onPress={addUser} disabled={!newUser.trim()}
-                  >
-                    <Text style={{ color: '#fff', fontWeight: '700', fontSize: 13 }}>+</Text>
-                  </TouchableOpacity>
+                <View style={{ marginBottom: 14 }}>
+                  <View style={{
+                    flexDirection: 'row', alignItems: 'center', gap: 8,
+                    backgroundColor: colors.surface, borderRadius: Radius.lg,
+                    borderWidth: 1, borderColor: addError ? 'rgba(255,69,58,0.5)' : colors.border,
+                    paddingHorizontal: 14, paddingVertical: 10,
+                  }}>
+                    <TextInput
+                      style={{ flex: 1, fontSize: 14, color: colors.textPri }}
+                      placeholder="Ajouter par identifiant..."
+                      placeholderTextColor={colors.textMut}
+                      value={newUser}
+                      onChangeText={t => { setNewUser(t); setAddError(''); }}
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      onSubmitEditing={addUser}
+                      returnKeyType="done"
+                      editable={!addLoading}
+                    />
+                    <TouchableOpacity
+                      style={{
+                        backgroundColor: newUser.trim() && !addLoading ? colors.accent : colors.border,
+                        borderRadius: Radius.sm, paddingHorizontal: 14, paddingVertical: 6,
+                        minWidth: 36, alignItems: 'center',
+                      }}
+                      onPress={addUser} disabled={!newUser.trim() || addLoading}
+                    >
+                      {addLoading
+                        ? <ActivityIndicator size="small" color="#fff"/>
+                        : <Text style={{ color: '#fff', fontWeight: '700', fontSize: 13 }}>+</Text>
+                      }
+                    </TouchableOpacity>
+                  </View>
+                  {!!addError && (
+                    <Text style={{ fontSize: 11, color: colors.danger, marginTop: 5, marginLeft: 4 }}>{addError}</Text>
+                  )}
                 </View>
 
                 {/* Authorized list */}
@@ -187,8 +217,8 @@ function PhotoDetailModal({ photo, visible, onClose, onDelete, onUpdateAuthorize
                       </View>
                       <View style={{ flex: 1 }}>
                         <Text style={{ fontSize: 14, fontWeight: '500', color: colors.textPri }}>{u}</Text>
-                        {KNOWN_USERS.includes(u)
-                          ? <Text style={{ fontSize: 11, color: colors.success, fontFamily: 'Courier New' }}>✓ Utilisateur vérifié</Text>
+                        {true
+                          ? <Text style={{ fontSize: 11, color: colors.success, fontFamily: 'Courier New' }}>✓ Accès accordé</Text>
                           : <Text style={{ fontSize: 11, color: colors.warning, fontFamily: 'Courier New' }}>⚠ Invitation en attente</Text>
                         }
                       </View>
@@ -257,6 +287,49 @@ function PhotoDetailModal({ photo, visible, onClose, onDelete, onUpdateAuthorize
                     {'👁 APP — accès via Secugram (utilisateur autorisé)\n🖼️ FILIGRANE — détecté via tatouage numérique (tout appareil)'}
                   </Text>
                 </View>
+              </View>
+            )}
+
+            {/* Requests tab */}
+            {tab === 'requests' && (
+              <View>
+                {requests.length === 0 ? (
+                  <Text style={{ color: colors.textSec, fontSize: 13, textAlign: 'center', paddingVertical: 20 }}>
+                    Aucune demande en attente.
+                  </Text>
+                ) : requests.map(req => (
+                  <View key={req.id} style={{
+                    flexDirection: 'row', alignItems: 'center',
+                    backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border,
+                    borderRadius: Radius.lg, padding: 12, marginBottom: 10,
+                  }}>
+                    <View style={{
+                      width: 36, height: 36, borderRadius: 18,
+                      backgroundColor: colors.accentDim,
+                      alignItems: 'center', justifyContent: 'center', marginRight: 12,
+                    }}>
+                      <Text style={{ fontSize: 13, fontWeight: '700', color: colors.accent }}>
+                        {req.requester_username.slice(0, 2).toUpperCase()}
+                      </Text>
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ fontSize: 13, fontWeight: '600', color: colors.textPri }}>{req.requester_username}</Text>
+                      <Text style={{ fontSize: 10, color: colors.textMut, fontFamily: 'Courier New' }}>{req.date}</Text>
+                    </View>
+                    <TouchableOpacity
+                      style={{
+                        backgroundColor: colors.accent, borderRadius: Radius.md,
+                        paddingHorizontal: 14, paddingVertical: 7,
+                      }}
+                      onPress={() => {
+                        onGrantRequest(photo.image_id, req.requester_username);
+                        setRequests(r => r.filter(x => x.id !== req.id));
+                      }}
+                    >
+                      <Text style={{ color: '#fff', fontWeight: '700', fontSize: 12 }}>Accorder</Text>
+                    </TouchableOpacity>
+                  </View>
+                ))}
               </View>
             )}
 
@@ -367,9 +440,7 @@ export default function MyPhotosScreen() {
   const { session } = useAuth();
   const { colors } = useTheme();
   const [photos, setPhotos] = useState([]);
-  const [knownUsers, setKnownUsers] = useState(
-    KNOWN_USERS.map((u, i) => ({ user_id: `u${i + 2}`, username: u, display: u.split('_')[0] }))
-  );
+  const [knownUsers, setKnownUsers] = useState([]);
   const [selected, setSelected] = useState(null);
   const [showUpload, setShowUpload] = useState(false);
 
@@ -378,23 +449,49 @@ export default function MyPhotosScreen() {
       setPhotos(MOCK_MY_PHOTOS);
       return;
     }
-    Promise.all([
-      API.fetchMyPhotos(session.token),
-      API.fetchUsers(session.token),
-    ]).then(([{ photos: p }, { users }]) => {
-      setPhotos(p);
-      setKnownUsers(users);
-    }).catch(() => setPhotos(MOCK_MY_PHOTOS));
+    API.fetchMyPhotos(session.token, session.username)
+      .then(({ photos: p }) => setPhotos(p))
+      .catch(() => {});
+    API.fetchUsers(session.token)
+      .then(({ users }) => setKnownUsers(users))
+      .catch(() => {});
   }, []);
 
   const handleDelete = (imageId) => {
+    API.removeFromSessionPhotos(imageId, session.username);
     setPhotos(p => p.filter(x => x.image_id !== imageId));
-    if (!session.isDemo) API.deletePhoto(session.token, imageId).catch(() => {});
+    if (!session.isDemo) API.deletePhoto(session.token, session.username, imageId).catch(() => {});
   };
 
-  const handleUpdateAuthorized = (imageId, authorized) => {
-    setPhotos(p => p.map(x => x.image_id === imageId ? { ...x, authorized } : x));
-    if (!session.isDemo) API.authorizePhoto(session.token, imageId, authorized).catch(() => {});
+  const handleAddUser = async (imageId, username) => {
+    await API.authorizePhoto(session.token, imageId, [username], session.username);
+    setPhotos(p => p.map(x => {
+      if (x.image_id !== imageId) return x;
+      const updated = [...(x.authorized ?? []), username];
+      const sharedPhoto = { ...x, owner_username: session.username, authorized: updated };
+      API.addToSharedPhotos(sharedPhoto, [username]).catch(() => {});
+      return { ...x, authorized: updated };
+    }));
+  };
+
+  const handleRemoveUser = (imageId, username) => {
+    setPhotos(p => p.map(x =>
+      x.image_id === imageId
+        ? { ...x, authorized: (x.authorized ?? []).filter(u => u !== username) }
+        : x
+    ));
+    if (!session.isDemo) API.revokeAccess(session.token, imageId, username, session.username).catch(() => {});
+  };
+
+  const handleGrantRequest = (imageId, requesterUsername) => {
+    if (!session.isDemo) {
+      API.grantAccessRequest(session.token, session.username, imageId, requesterUsername).catch(() => {});
+    }
+    setPhotos(p => p.map(x =>
+      x.image_id === imageId
+        ? { ...x, authorized: [...(x.authorized ?? []), requesterUsername] }
+        : x
+    ));
   };
 
   const handleToggleBlock = (imageId) => {
@@ -457,8 +554,10 @@ export default function MyPhotosScreen() {
         visible={!!selected}
         onClose={() => setSelected(null)}
         onDelete={handleDelete}
-        onUpdateAuthorized={handleUpdateAuthorized}
+        onAddUser={handleAddUser}
+        onRemoveUser={handleRemoveUser}
         onToggleBlock={handleToggleBlock}
+        onGrantRequest={handleGrantRequest}
         colors={colors}
       />
 
@@ -466,8 +565,9 @@ export default function MyPhotosScreen() {
         visible={showUpload}
         onClose={() => setShowUpload(false)}
         onSuccess={({ imageId, uri, description, authorized, ephemeralDuration, maxViews }) => {
-          setPhotos(prev => [{
+          const newPhoto = {
             image_id: imageId,
+            owner_username: session.username,
             description: description || 'Image sans titre',
             date_creation: new Date().toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' }),
             preview_uri: uri,
@@ -477,7 +577,10 @@ export default function MyPhotosScreen() {
             blocked: false,
             access_count: 0,
             history: [],
-          }, ...prev]);
+          };
+          API.addToSessionPhotos(newPhoto, session.username);
+          API.addToFeed({ ...newPhoto, owner_username: session.username }).catch(() => {});
+          setPhotos(prev => [newPhoto, ...prev]);
           setShowUpload(false);
         }}
         users={knownUsers}
